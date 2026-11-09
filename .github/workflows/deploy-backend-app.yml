@@ -40,6 +40,6 @@ jobs:
       - name: Deploy to Amazon ECS
         run: |
           aws ecs update-service \
-            --cluster ${{ vars.CLUSTER_NAME }} \
-            --service ${{ vars.BACKEND_SERVICE_NAME }} \
+            --cluster ai-voice-assistant-cluster \
+            --service ai-voice-assistant-backend-service \
             --force-new-deployment
