@@ -1,0 +1,43 @@
+name: Build and Deploy Backend App to ECS
+
+on:
+  push:
+    paths:
+      - 'backend/**'
+    branches:
+      - feat/video-cicd-ecs
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_DEFAULT_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and tag Docker image
+        run: |
+          cd backend
+          docker build -t ${{ vars.BACKEND_IMAGE }} .
+
+      - name: Push image to Amazon ECR
+        run: |
+          docker push ${{ vars.BACKEND_IMAGE }}
+
+      - name: Deploy to Amazon ECS
+        run: |
+          aws ecs update-service \
+            --cluster ${{ vars.CLUSTER_NAME }} \
+            --service ${{ vars.BACKEND_SERVICE_NAME }} \
+            --force-new-deployment
