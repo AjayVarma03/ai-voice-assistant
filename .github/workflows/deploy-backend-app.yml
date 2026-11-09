@@ -31,11 +31,11 @@ jobs:
       - name: Build and tag Docker image
         run: |
           cd backend
-          docker build -t ${{ vars.BACKEND_IMAGE }} .
+          docker build -t "${{ vars.BACKEND_IMAGE }}" .
 
       - name: Push image to Amazon ECR
         run: |
-          docker push ${{ vars.BACKEND_IMAGE }}
+          docker push "${{ vars.BACKEND_IMAGE }}"
 
       - name: Deploy to Amazon ECS
         run: |
