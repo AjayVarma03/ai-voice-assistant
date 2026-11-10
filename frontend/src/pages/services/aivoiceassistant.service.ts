@@ -11,7 +11,8 @@ export const getAIReplyOutput = async (userAudioData: Blob) => {
   };
   try {
     const result = await fetch(
-      "http://16.179.20.34:8000/voice-assistant/audio-message",
+      "http://ai-voice-assistant-alb-123456789.ap-southeast-2.elb.amazonaws.com:8000/voice-assistant/audio-message",
+      //"http://16.179.20.34:8000/voice-assistant/audio-message"
       requestOptions
     );
 
