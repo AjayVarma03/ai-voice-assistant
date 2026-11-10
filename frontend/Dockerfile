@@ -2,20 +2,17 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy package files
+# Copy dependency manifests
 COPY package*.json ./
 
 # Install dependencies
 RUN npm install
 
-# Copy frontend source code
+# Copy application source code
 COPY . .
 
-# Build application
-RUN npm run build
-
-# Expose Next.js/React port
+# Expose Next.js port
 EXPOSE 3000
 
-# Start application
-CMD ["npm", "start"]
+# Run in dev mode bound to all network interfaces (0.0.0.0)
+CMD ["npx", "next", "dev", "-H", "0.0.0.0", "-p", "3000"]
