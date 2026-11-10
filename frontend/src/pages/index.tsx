@@ -1,6 +1,6 @@
 import Head from 'next/head'
 import styles from '@/styles/Home.module.css'
-import VoiceAssistant from '../components/VoiceAssistant/VoiceAssistant.component'
+import VoiceAssistant from './components/VoiceAssistant/VoiceAssistant.component'
 
 export default function Home() {
   return (
