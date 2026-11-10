@@ -8,3 +8,5 @@ openai
 langchain<0.2.0
 langchain-community
 langchain-openai
+boto3
+pydub
