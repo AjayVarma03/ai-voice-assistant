@@ -7,7 +7,6 @@ on:
       - 'frontend/**'
     branches:
       - main
-      - feat/video-cicd-ecs
 
 jobs:
   build-and-deploy:
@@ -22,7 +21,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_DEFAULT_REGION }}
+          aws-region: ap-southeast-2
 
       - name: Log in to Amazon ECR
         id: login-ecr
@@ -31,15 +30,15 @@ jobs:
       - name: Build and tag Docker image
         run: |
           cd frontend
-          docker build -t "${{ vars.FRONTEND_IMAGE }}" .
+          docker build -t "518668548300.dkr.ecr.ap-southeast-2.amazonaws.com/ai-voice-assistant-frontend:latest" .
 
       - name: Push image to Amazon ECR
         run: |
-          docker push "${{ vars.FRONTEND_IMAGE }}"
+          docker push "518668548300.dkr.ecr.ap-southeast-2.amazonaws.com/ai-voice-assistant-frontend:latest"
 
       - name: Deploy to Amazon ECS
         run: |
           aws ecs update-service \
-            --cluster ${{ vars.CLUSTER_NAME }} \
-            --service ${{ vars.FRONTEND_SERVICE_NAME }} \
+            --cluster ai-voice-assistant-cluster \
+            --service ai-voice-assistant-frontend-service \
             --force-new-deployment
