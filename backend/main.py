@@ -8,20 +8,21 @@ setup_app_config()
 app = FastAPI()
 
 origins = [
-    "http://localhost",
     "http://localhost:3000",
-    "*"
+    "http://localhost",
+    "http://3.107.175.59:3000",  # Your frontend ECS task IP
+    "*",
 ]
-
-app.include_router(AssistantAudioController, tags=['assistant'])
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
+    allow_credentials=False,  # Set to False to allow "*" wildcard matching
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(AssistantAudioController, tags=['assistant'])
 
 @app.get("/")
 def read_root():
