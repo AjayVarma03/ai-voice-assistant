@@ -26,6 +26,6 @@ app.include_router(AssistantAudioController, tags=['assistant'])
 
 @app.get("/")
 def read_root():
-    return {"message": "Hello World from CI/CD Backend v1, Deployed_By:Ajay_Varma_Thodeti2345"}
+    return {"message": "Hello World from CI/CD Backend v1, Deployed_By:Pooja K Yadav"}
 
 #Backed Updated By Ajay Varma Thodeti
