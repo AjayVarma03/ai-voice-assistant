@@ -1,6 +1,7 @@
+import os
 import boto3
 
-polly_client = boto3.client('polly')
+polly_client = boto3.client('polly', region_name=os.getenv('AWS_REGION', 'ap-southeast-2'))
 
 
 def convert_text_to_audio(text_content: str):
