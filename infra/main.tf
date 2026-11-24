@@ -21,29 +21,63 @@ provider "aws" {
   }
 }
 
-data "aws_vpc" "default" {
-  default = true
+# Fetch latest Ubuntu 24.04 AMI via SSM Parameter Store (avoids blocked DescribeImages)
+data "aws_ssm_parameter" "ubuntu_24_04" {
+  name = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
 }
 
-data "aws_ami" "ubuntu_24_04" {
-  most_recent = true
-  owners      = ["099720109477"] # Canonical
+# Dedicated VPC (required because no default VPC exists in ap-southeast-2)
+resource "aws_vpc" "demo_vpc" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
 
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
+  tags = {
+    Name = "ai-voice-demo-vpc"
+  }
+}
+
+resource "aws_internet_gateway" "demo_igw" {
+  vpc_id = aws_vpc.demo_vpc.id
+
+  tags = {
+    Name = "ai-voice-demo-igw"
+  }
+}
+
+resource "aws_subnet" "demo_public_subnet" {
+  vpc_id                  = aws_vpc.demo_vpc.id
+  cidr_block              = "10.0.1.0/24"
+  availability_zone       = "ap-southeast-2a"
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name = "ai-voice-demo-public-subnet"
+  }
+}
+
+resource "aws_route_table" "demo_public_rt" {
+  vpc_id = aws_vpc.demo_vpc.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.demo_igw.id
   }
 
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
+  tags = {
+    Name = "ai-voice-demo-public-rt"
   }
+}
+
+resource "aws_route_table_association" "demo_public_rta" {
+  subnet_id      = aws_subnet.demo_public_subnet.id
+  route_table_id = aws_route_table.demo_public_rt.id
 }
 
 resource "aws_security_group" "ai_voice_sg" {
   name        = "ai-voice-assistant-demo-sg"
   description = "Security group for AI Voice Assistant demo"
-  vpc_id      = data.aws_vpc.default.id
+  vpc_id      = aws_vpc.demo_vpc.id
 
   ingress {
     description = "SSH / EC2 Instance Connect"
@@ -86,9 +120,11 @@ resource "aws_security_group" "ai_voice_sg" {
 }
 
 resource "aws_instance" "ai_voice_server" {
-  ami                    = data.aws_ami.ubuntu_24_04.id
-  instance_type          = "t3.small"
-  vpc_security_group_ids = [aws_security_group.ai_voice_sg.id]
+  ami                         = nonsensitive(data.aws_ssm_parameter.ubuntu_24_04.value)
+  instance_type               = "t3.small"
+  subnet_id                   = aws_subnet.demo_public_subnet.id
+  vpc_security_group_ids      = [aws_security_group.ai_voice_sg.id]
+  associate_public_ip_address = true
 
   root_block_device {
     volume_size = 20
