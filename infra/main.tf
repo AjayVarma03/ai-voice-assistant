@@ -21,12 +21,28 @@ provider "aws" {
   }
 }
 
-# Fetch latest Ubuntu 24.04 AMI via SSM Parameter Store (avoids blocked DescribeImages)
+variable "env_content" {
+  description = "Full contents of backend/.env file"
+  type        = string
+  sensitive   = true
+}
+
+variable "github_runner_token" {
+  description = "GitHub Actions self-hosted runner registration token"
+  type        = string
+  sensitive   = true
+}
+
+variable "github_repo_url" {
+  description = "GitHub repository URL"
+  type        = string
+  default     = "https://github.com/AjayVarma03/ai-voice-assistant"
+}
+
 data "aws_ssm_parameter" "ubuntu_24_04" {
   name = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
 }
 
-# Dedicated VPC (required because no default VPC exists in ap-southeast-2)
 resource "aws_vpc" "demo_vpc" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
@@ -80,14 +96,6 @@ resource "aws_security_group" "ai_voice_sg" {
   vpc_id      = aws_vpc.demo_vpc.id
 
   ingress {
-    description = "SSH / EC2 Instance Connect"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
     description = "HTTP"
     from_port   = 80
     to_port     = 80
@@ -125,6 +133,7 @@ resource "aws_instance" "ai_voice_server" {
   subnet_id                   = aws_subnet.demo_public_subnet.id
   vpc_security_group_ids      = [aws_security_group.ai_voice_sg.id]
   associate_public_ip_address = true
+  user_data_replace_on_change = true
 
   root_block_device {
     volume_size = 20
@@ -133,15 +142,19 @@ resource "aws_instance" "ai_voice_server" {
 
   user_data = <<-USERDATA
               #!/bin/bash
-              set -e
+              exec > /var/log/user-data.log 2>&1
+              set -x
+
               apt-get update -y
-              apt-get install -y git curl nginx ffmpeg python3 python3-pip python3-venv
-              curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-              apt-get install -y nodejs
-              npm install -g pm2
+              apt-get install -y git curl jq nginx ffmpeg python3 python3-pip python3-venv
 
               mkdir -p /opt/ai-voice-assistant
-              git clone https://github.com/AjayVarma03/ai-voice-assistant.git /opt/ai-voice-assistant
+              git clone ${var.github_repo_url}.git /opt/ai-voice-assistant
+
+              cat << 'ENVEOF' > /opt/ai-voice-assistant/backend/.env
+              ${var.env_content}
+              ENVEOF
+              chmod 600 /opt/ai-voice-assistant/backend/.env
               chown -R ubuntu:ubuntu /opt/ai-voice-assistant
 
               cd /opt/ai-voice-assistant/backend
@@ -149,9 +162,29 @@ resource "aws_instance" "ai_voice_server" {
               ./venv/bin/pip install --upgrade pip
               ./venv/bin/pip install -r requirements.txt
 
-              su - ubuntu -c "cd /opt/ai-voice-assistant/backend && pm2 start './venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000' --name ai-voice-backend && pm2 save"
-              env PATH=$PATH:/usr/bin pm2 startup systemd -u ubuntu --hp /home/ubuntu
+              # Create systemd service for FastAPI (more reliable than PM2 on boot)
+              cat << 'SERVICE' > /etc/systemd/system/ai-voice-backend.service
+              [Unit]
+              Description=AI Voice Assistant FastAPI Backend
+              After=network.target
 
+              [Service]
+              User=ubuntu
+              WorkingDirectory=/opt/ai-voice-assistant/backend
+              EnvironmentFile=/opt/ai-voice-assistant/backend/.env
+              ExecStart=/opt/ai-voice-assistant/backend/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+              Restart=always
+              RestartSec=3
+
+              [Install]
+              WantedBy=multi-user.target
+              SERVICE
+
+              systemctl daemon-reload
+              systemctl enable ai-voice-backend
+              systemctl start ai-voice-backend
+
+              # Configure Nginx reverse proxy
               cat << 'NGINX' > /etc/nginx/sites-available/ai-voice
               server {
                   listen 80;
@@ -170,6 +203,19 @@ resource "aws_instance" "ai_voice_server" {
               ln -sf /etc/nginx/sites-available/ai-voice /etc/nginx/sites-enabled/ai-voice
               rm -f /etc/nginx/sites-enabled/default
               nginx -t && systemctl restart nginx
+
+              # Install & start GitHub Actions Self-Hosted Runner
+              mkdir -p /home/ubuntu/actions-runner
+              cd /home/ubuntu/actions-runner
+              RUNNER_VER=$(curl -s https://api.github.com/repos/actions/runner/releases/latest | jq -r '.tag_name' | tr -d 'v')
+              curl -sL "https://github.com/actions/runner/releases/download/v$${RUNNER_VER}/actions-runner-linux-x64-$${RUNNER_VER}.tar.gz" -o actions-runner.tar.gz
+              tar xzf actions-runner.tar.gz
+              rm -f actions-runner.tar.gz
+              chown -R ubuntu:ubuntu /home/ubuntu/actions-runner
+
+              su - ubuntu -c "cd /home/ubuntu/actions-runner && ./config.sh --url ${var.github_repo_url} --token ${var.github_runner_token} --unattended --replace"
+              ./svc.sh install ubuntu
+              ./svc.sh start
               USERDATA
 
   tags = {
