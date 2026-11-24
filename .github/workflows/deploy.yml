@@ -1,97 +1,32 @@
-name: Deploy to AWS ECS Fargate
+name: Deploy AI Voice Demo
 
 on:
   push:
     branches:
       - main
 
-env:
-  AWS_REGION: ap-southeast-2
-  PROJECT_NAME: ai-voice-assistant
-  ECS_CLUSTER: ai-voice-assistant-cluster
-  FRONTEND_SERVICE: ai-voice-assistant-frontend-svc
-  BACKEND_SERVICE: ai-voice-assistant-backend-svc
-  FRONTEND_TASK_FAMILY: ai-voice-assistant-frontend
-  BACKEND_TASK_FAMILY: ai-voice-assistant-backend
-
 jobs:
   deploy:
-    name: Build, Push & Deploy
-    runs-on: ubuntu-latest
-
+    runs-on: self-hosted
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build & push Frontend image (Next.js)
-        id: build-frontend
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
+      - name: Sync code to /opt/ai-voice-assistant
         run: |
-          docker build -t $ECR_REGISTRY/$PROJECT_NAME-frontend:$IMAGE_TAG -t $ECR_REGISTRY/$PROJECT_NAME-frontend:latest ./frontend
-          docker push $ECR_REGISTRY/$PROJECT_NAME-frontend:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$PROJECT_NAME-frontend:latest
-          echo "image=$ECR_REGISTRY/$PROJECT_NAME-frontend:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          rsync -av --delete \
+            --exclude='.git' \
+            --exclude='.env' \
+            --exclude='backend/.env' \
+            --exclude='backend/venv' \
+            --exclude='node_modules' \
+            ./ /opt/ai-voice-assistant/
 
-      - name: Build & push Backend image (FastAPI)
-        id: build-backend
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
+      - name: Install dependencies & restart FastAPI
+        working-directory: /opt/ai-voice-assistant/backend
         run: |
-          docker build -t $ECR_REGISTRY/$PROJECT_NAME-backend:$IMAGE_TAG -t $ECR_REGISTRY/$PROJECT_NAME-backend:latest ./backend
-          docker push $ECR_REGISTRY/$PROJECT_NAME-backend:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$PROJECT_NAME-backend:latest
-          echo "image=$ECR_REGISTRY/$PROJECT_NAME-backend:$IMAGE_TAG" >> $GITHUB_OUTPUT
-
-      - name: Download Frontend task definition
-        run: |
-          aws ecs describe-task-definition --task-definition $FRONTEND_TASK_FAMILY --query taskDefinition > frontend-task-def.json
-
-      - name: Update Frontend task definition image
-        id: render-frontend
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: frontend-task-def.json
-          container-name: frontend
-          image: ${{ steps.build-frontend.outputs.image }}
-
-      - name: Deploy Frontend to ECS
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
-        with:
-          task-definition: ${{ steps.render-frontend.outputs.task-definition }}
-          service: ${{ env.FRONTEND_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
-
-      - name: Download Backend task definition
-        run: |
-          aws ecs describe-task-definition --task-definition $BACKEND_TASK_FAMILY --query taskDefinition > backend-task-def.json
-
-      - name: Update Backend task definition image
-        id: render-backend
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: backend-task-def.json
-          container-name: backend
-          image: ${{ steps.build-backend.outputs.image }}
-
-      - name: Deploy Backend to ECS
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
-        with:
-          task-definition: ${{ steps.render-backend.outputs.task-definition }}
-          service: ${{ env.BACKEND_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
+          python3 -m venv venv
+          ./venv/bin/pip install --upgrade pip
+          ./venv/bin/pip install -r requirements.txt
+          pm2 restart ai-voice-backend || pm2 start "./venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000" --name ai-voice-backend
+          pm2 save
